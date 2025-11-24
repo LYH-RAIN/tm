@@ -140,6 +140,10 @@ get_source_code() {
                     cp -r "$temp_dir/public" "$FRONTEND_DIR/" 2>/dev/null || true
                     cp "$temp_dir/package.json" "$FRONTEND_DIR/"
                     cp "$temp_dir/package-lock.json" "$FRONTEND_DIR/" 2>/dev/null || true
+                    cp "$temp_dir/webpack.config.js" "$FRONTEND_DIR/" 2>/dev/null || true
+                    cp "$temp_dir/tailwind.config.js" "$FRONTEND_DIR/" 2>/dev/null || true
+                    cp "$temp_dir/postcss.config.js" "$FRONTEND_DIR/" 2>/dev/null || true
+                    cp "$temp_dir/index.html" "$FRONTEND_DIR/" 2>/dev/null || true
                     log_info "✓ 前端代码已复制"
                 fi
 
@@ -166,7 +170,7 @@ get_source_code() {
         for search_path in "${search_paths[@]}"; do
             log_info "检查源码路径: $search_path"
 
-            if [ -f "$search_path/server/main.py" ] || [ -f "$search_path/src/App.js" ]; then
+            if [ -f "$search_path/server/main.py" ] || [ -f "$search_path/src/App.jsx" ] || [ -f "$search_path/src/App.js" ]; then
                 log_info "✓ 在 $search_path 发现项目文件"
 
                 # 复制后端代码
@@ -183,6 +187,10 @@ get_source_code() {
                     [ -d "$search_path/public" ] && cp -r "$search_path/public" "$FRONTEND_DIR/"
                     cp "$search_path/package.json" "$FRONTEND_DIR/"
                     cp "$search_path/package-lock.json" "$FRONTEND_DIR/" 2>/dev/null || true
+                    cp "$search_path/webpack.config.js" "$FRONTEND_DIR/" 2>/dev/null || true
+                    cp "$search_path/tailwind.config.js" "$FRONTEND_DIR/" 2>/dev/null || true
+                    cp "$search_path/postcss.config.js" "$FRONTEND_DIR/" 2>/dev/null || true
+                    cp "$search_path/index.html" "$FRONTEND_DIR/" 2>/dev/null || true
                     log_info "✓ 前端代码已复制"
                 fi
 
@@ -310,7 +318,7 @@ EOF
     "web-vitals": "^3.5.0"
   },
   "scripts": {
-    "start": "react-scripts start",
+    "start": "HOST=0.0.0.0 react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
@@ -629,6 +637,14 @@ setup_python_env() {
     
     cd "$BACKEND_DIR"
     
+    # 接受Conda服务条款
+    log_info "接受Conda服务条款..."
+    "$CONDA_PATH/bin/conda" config --set tos_consent true 2>/dev/null || true
+
+    # 如果上面的方法不行，使用新的tos accept命令
+    "$CONDA_PATH/bin/conda" tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main 2>/dev/null || true
+    "$CONDA_PATH/bin/conda" tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r 2>/dev/null || true
+
     # 使用Conda创建虚拟环境
     if [ ! -d "$BACKEND_DIR/conda_env" ]; then
         log_info "创建Conda虚拟环境..."
@@ -686,9 +702,66 @@ install_frontend_deps() {
         exit 1
     fi
     
+    # 检查node_modules是否已存在
+    if [ -d "node_modules" ] && [ -f "package-lock.json" ]; then
+        log_info "检测到node_modules已存在，跳过依赖安装"
+        log_info "如需重新安装，请删除node_modules目录后重新运行"
+        log_info "前端依赖检查完成"
+        return 0
+    fi
+
     # 安装依赖
     log_info "正在安装npm依赖..."
-    npm install
+
+    # 清理npm缓存
+    log_info "清理npm缓存..."
+    npm cache clean --force 2>/dev/null || true
+
+    # 检查磁盘空间
+    local disk_free=$(df /tmp | awk 'NR==2{print $4}')
+    if [[ $disk_free -lt 1048576 ]]; then  # 小于1GB
+        log_warn "磁盘空间可能不足，当前可用空间: $(( $disk_free / 1024 ))MB"
+    fi
+
+    # 设置npm配置优化安装
+    npm config set fetch-retries 3
+    npm config set fetch-retry-factor 2
+    npm config set fetch-timeout 60000
+    npm config set maxsockets 1
+
+    # 尝试安装，如果失败则重试
+    local max_attempts=3
+    local attempt=1
+
+    while [[ $attempt -le $max_attempts ]]; do
+        log_info "第 $attempt 次尝试安装依赖..."
+
+        if npm install --prefer-offline --no-audit --progress=false; then
+            log_info "npm依赖安装成功"
+            break
+        else
+            log_warn "第 $attempt 次安装失败"
+
+            if [[ $attempt -eq $max_attempts ]]; then
+                log_error "npm依赖安装失败，已尝试 $max_attempts 次"
+                log_info "请尝试手动执行以下命令进行问题排查："
+                echo "  cd $FRONTEND_DIR"
+                echo "  npm cache clean --force"
+                echo "  npm install --verbose"
+                echo "  或者尝试使用 yarn 替代："
+                echo "  npm install -g yarn"
+                echo "  yarn install"
+                return 1
+            fi
+
+            # 清理并重试
+            log_info "清理node_modules后重试..."
+            rm -rf node_modules package-lock.json
+            npm cache clean --force
+            sleep 5
+            ((attempt++))
+        fi
+    done
     
     log_info "前端依赖安装完成"
 }
@@ -699,14 +772,62 @@ build_frontend() {
     
     cd "$FRONTEND_DIR"
     
-    # 构建生产版本
-    log_info "正在构建React应用..."
-    npm run build
-    
-    if [ -d "build" ]; then
+    # 检查并安装webpack相关依赖（如果需要）
+    local build_script=$(node -p "JSON.parse(require('fs').readFileSync('package.json')).scripts.build" 2>/dev/null || echo "")
+
+    if [[ "$build_script" == *"webpack"* ]]; then
+        log_info "检测到使用webpack构建，确保webpack相关依赖已安装..."
+
+        # 检查webpack是否已安装
+        if ! npm list webpack >/dev/null 2>&1; then
+            log_info "webpack未安装，尝试快速安装..."
+
+            # 方案1: 尝试使用cnpm（如果已安装）
+            if command -v cnpm >/dev/null 2>&1; then
+                log_info "检测到cnpm，使用cnpm安装webpack依赖..."
+                if cnpm install --save-dev webpack webpack-cli; then
+                    log_info "✓ cnpm安装webpack成功"
+                else
+                    log_warn "cnpm安装失败，跳过webpack安装"
+                fi
+            # 方案2: 快速npm安装（30秒超时）
+            elif timeout 30 npm install --save-dev --no-audit --progress=false webpack webpack-cli >/dev/null 2>&1; then
+                log_info "✓ npm快速安装webpack成功"
+            else
+                log_warn "webpack依赖安装超时，跳过安装步骤"
+                log_info "将直接尝试使用npx webpack构建"
+            fi
+        fi
+
+        # 使用npx调用本地webpack
+        if [[ "$build_script" == "webpack --mode production" ]] || [ -f "webpack.config.js" ]; then
+            log_info "使用npx webpack构建..."
+            if [ -f "webpack.config.js" ]; then
+                npx webpack --config webpack.config.js --mode production
+            else
+                npx webpack --mode production
+            fi
+        else
+            log_info "正在构建React应用..."
+            npm run build
+        fi
+    else
+        # 构建生产版本
+        log_info "正在构建React应用..."
+        npm run build
+    fi
+
+    # 检查构建结果
+    if [ -d "build" ] || [ -d "dist" ]; then
+        # 如果是webpack构建，可能输出目录是dist
+        if [ -d "dist" ] && [ ! -d "build" ]; then
+            log_info "检测到webpack输出目录为dist，创建build目录链接..."
+            ln -sf dist build
+        fi
         log_info "前端构建完成"
     else
-        log_error "前端构建失败"
+        log_error "前端构建失败，未找到构建输出目录"
+        log_info "请检查构建配置或手动执行构建命令"
         exit 1
     fi
 }

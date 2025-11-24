@@ -192,8 +192,8 @@ install_nodejs() {
     log_info "npm版本: $npm_version"
     
     # 配置npm镜像（提高下载速度）
-    npm config set registry https://registry.npm.taobao.org
-    log_info "已配置npm淘宝镜像"
+    npm config set registry https://registry.npmmirror.com
+    log_info "已配置npm淘宝镜像（npmmirror）"
 }
 
 # 配置防火墙
@@ -266,6 +266,9 @@ EOF
 # 前端配置
 REACT_APP_API_URL=http://localhost:3001/api
 NODE_ENV=production
+HOST=0.0.0.0
+PORT=3000
+GENERATE_SOURCEMAP=false
 EOF
 
     # 设置权限
