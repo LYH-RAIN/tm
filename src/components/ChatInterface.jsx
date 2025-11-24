@@ -150,7 +150,7 @@ function ChatInterface({ config }) {
             className="bg-gradient-to-r from-pink-medium to-pink-deep text-white px-8 py-3 rounded-2xl font-medium hover:shadow-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105"
           >
             <i className="fas fa-paper-plane mr-2"></i>
-            发送
+            发送吐槽
           </button>
         </div>
       </div>

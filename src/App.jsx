@@ -32,7 +32,7 @@ function App() {
           <div className="inline-block animate-float">
             <h1 className="text-5xl font-bold text-pink-deep mb-2">
               <i className="fas fa-heart mr-3"></i>
-              AI哄老婆系统
+              哄汤敏系统
               <i className="fas fa-heart ml-3"></i>
             </h1>
           </div>
