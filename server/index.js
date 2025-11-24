@@ -25,9 +25,9 @@ ${chatHistory && chatHistory.length > 0 ? `参考以下聊天风格：\n${chatHi
 请用这种风格回复用户的消息。`;
 
     const response = await axios.post(
-      'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+      'https://apis.iflow.cn/v1/chat/completions',
       {
-        model: modelId,
+        model: modelId || 'TBStars2-200B-A13B',
         messages: [
           {
             role: 'system',
@@ -39,7 +39,8 @@ ${chatHistory && chatHistory.length > 0 ? `参考以下聊天风格：\n${chatHi
           }
         ],
         temperature: 0.8,
-        max_tokens: 500
+        max_tokens: 800,
+        stream: false
       },
       {
         headers: {

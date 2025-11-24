@@ -18,8 +18,8 @@ function ChatInterface({ config }) {
   const sendMessage = async () => {
     if (!inputText.trim() || isLoading) return;
 
-    if (!config.apiKey || !config.modelId) {
-      alert('请先在设置中配置百炼API密钥和模型ID');
+    if (!config.modelId) {
+      alert('请先在设置中配置模型ID');
       return;
     }
 
@@ -36,7 +36,6 @@ function ChatInterface({ config }) {
     try {
       const response = await axios.post('http://localhost:3001/api/chat', {
         message: inputText,
-        apiKey: config.apiKey,
         modelId: config.modelId,
         chatHistory: config.chatHistory
       });

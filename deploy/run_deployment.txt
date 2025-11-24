@@ -1,0 +1,64 @@
+哄汤敏系统 - 阿里云Linux部署指南
+===============================================
+
+快速开始：
+---------
+1. 上传所有脚本到服务器 /opt/huangtangmin-deploy/ 目录
+2. 设置执行权限: chmod +x /opt/huangtangmin-deploy/*.sh
+3. 运行一键部署: sudo ./00_one_click_deploy.sh
+
+部署脚本说明：
+-----------
+00_one_click_deploy.sh    - 主部署脚本，自动执行所有步骤
+01_install_environment.sh - 环境安装（Conda、Node.js、系统依赖）
+02_deploy_project.sh      - 项目部署（代码、构建、配置）
+03_manage_services.sh     - 服务管理（启动、监控、备份等）
+
+常用命令：
+---------
+# 完整部署（推荐）
+sudo ./00_one_click_deploy.sh
+
+# 带API密钥和域名的部署
+sudo ./00_one_click_deploy.sh --api-key your_key --domain example.com --ssl
+
+# 仅安装环境
+sudo ./01_install_environment.sh
+
+# 仅部署项目
+sudo ./02_deploy_project.sh
+
+# 服务管理
+sudo ./03_manage_services.sh status    # 查看状态
+sudo ./03_manage_services.sh restart   # 重启服务
+sudo ./03_manage_services.sh logs -f   # 查看日志
+
+系统要求：
+---------
+- 阿里云Linux或兼容的CentOS/RHEL系统
+- 至少2GB内存，10GB可用磁盘空间
+- root权限
+- 互联网连接
+
+部署后访问：
+-----------
+- 前端页面: http://您的服务器IP/
+- API接口: http://您的服务器IP/api/
+- 管理命令: huangtangmin-service
+
+重要配置文件：
+-----------
+- 后端环境变量: /var/www/huangtangmin-system/backend/.env
+- nginx配置: /etc/nginx/sites-available/huangtangmin-system
+- 服务配置: /etc/systemd/system/huangtangmin-system-backend.service
+
+故障排除：
+---------
+1. 查看服务状态: huangtangmin-service status
+2. 查看详细日志: journalctl -u huangtangmin-system-backend -f
+3. 检查nginx配置: nginx -t
+4. 重启所有服务: huangtangmin-service restart
+
+技术支持：
+---------
+如遇问题，请检查日志并保存错误信息以便排查。

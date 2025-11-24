@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 
 function SettingsPanel({ config, onSave }) {
-  const [apiKey, setApiKey] = useState(config.apiKey || '');
   const [modelId, setModelId] = useState(config.modelId || '');
   const [chatHistory, setChatHistory] = useState(config.chatHistory?.join('\n') || '');
 
@@ -12,7 +11,6 @@ function SettingsPanel({ config, onSave }) {
       .map(line => line.trim());
 
     onSave({
-      apiKey,
       modelId,
       chatHistory: historyArray
     });
@@ -28,22 +26,7 @@ function SettingsPanel({ config, onSave }) {
       </h2>
 
       <div className="space-y-6">
-        <div>
-          <label className="block text-gray-700 font-medium mb-2">
-            <i className="fas fa-key mr-2 text-pink-medium"></i>
-            百炼API密钥
-          </label>
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="请输入你的百炼API Key"
-            className="w-full px-4 py-3 border-2 border-pink-light rounded-xl focus:border-pink-deep focus:outline-none bg-white/80"
-          />
-          <p className="text-sm text-gray-500 mt-2">
-            在百炼平台获取你的API密钥
-          </p>
-        </div>
+
 
         <div>
           <label className="block text-gray-700 font-medium mb-2">
@@ -54,11 +37,11 @@ function SettingsPanel({ config, onSave }) {
             type="text"
             value={modelId}
             onChange={(e) => setModelId(e.target.value)}
-            placeholder="例如: qwen-plus"
+            placeholder="例如: TBStars2-200B-A13B"
             className="w-full px-4 py-3 border-2 border-pink-light rounded-xl focus:border-pink-deep focus:outline-none bg-white/80"
           />
           <p className="text-sm text-gray-500 mt-2">
-            选择合适的模型，推荐使用 qwen-plus 或 qwen-max
+            选择合适的模型，推荐使用 TBStars2-200B-A13B
           </p>
         </div>
 
@@ -98,7 +81,7 @@ function SettingsPanel({ config, onSave }) {
         <ul className="space-y-2 text-sm text-gray-700">
           <li className="flex items-start">
             <i className="fas fa-heart text-pink-medium mr-2 mt-1"></i>
-            <span>在百炼平台创建应用并获取API密钥</span>
+            <span>API密钥已在后端配置，无需前端输入</span>
           </li>
           <li className="flex items-start">
             <i className="fas fa-heart text-pink-medium mr-2 mt-1"></i>
@@ -106,7 +89,7 @@ function SettingsPanel({ config, onSave }) {
           </li>
           <li className="flex items-start">
             <i className="fas fa-heart text-pink-medium mr-2 mt-1"></i>
-            <span>保存设置后，就可以开始使用啦～</span>
+            <span>选择合适的模型后，就可以开始使用啦～</span>
           </li>
         </ul>
       </div>
