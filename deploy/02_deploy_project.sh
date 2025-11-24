@@ -116,31 +116,511 @@ backup_existing() {
 get_source_code() {
     log_step "获取项目源码..."
     
-    # 检查当前目录是否包含项目文件
-    if [ -f "../server/main.py" ] && [ -f "../src/App.js" ]; then
-        log_info "检测到本地项目文件"
-        
-        # 复制后端代码
-        log_info "复制后端代码..."
-        cp -r ../server/* "$BACKEND_DIR/"
-        
-        # 复制前端代码
-        log_info "复制前端代码..."
-        cp -r ../src "$FRONTEND_DIR/"
-        cp -r ../public "$FRONTEND_DIR/"
-        cp ../package.json "$FRONTEND_DIR/"
-        cp ../package-lock.json "$FRONTEND_DIR/" 2>/dev/null || true
-        
-        # 设置权限
-        chown -R www-data:www-data "$DEPLOY_BASE"
-        
-    else
-        log_warn "未在当前目录找到项目源码文件"
-        log_info "请手动将项目代码复制到以下目录："
-        echo "  后端代码 -> $BACKEND_DIR"
-        echo "  前端代码 -> $FRONTEND_DIR"
-        read -p "代码复制完成后按Enter继续..." -r
+    local source_found=false
+    local git_repo_url=""
+
+    # 方案1: 尝试从Git仓库克隆（如果提供了Git URL）
+    if [[ -n "${GIT_REPO_URL:-}" ]]; then
+        log_info "从Git仓库获取源码: $GIT_REPO_URL"
+
+        if command -v git >/dev/null 2>&1; then
+            local temp_dir="/tmp/huangtangmin-source-$(date +%s)"
+            if git clone "$GIT_REPO_URL" "$temp_dir"; then
+                log_info "Git克隆成功，正在复制文件..."
+
+                # 复制后端代码
+                if [ -d "$temp_dir/server" ]; then
+                    cp -r "$temp_dir/server"/* "$BACKEND_DIR/"
+                    log_info "✓ 后端代码已复制"
+                fi
+
+                # 复制前端代码
+                if [ -d "$temp_dir/src" ] && [ -f "$temp_dir/package.json" ]; then
+                    cp -r "$temp_dir/src" "$FRONTEND_DIR/"
+                    cp -r "$temp_dir/public" "$FRONTEND_DIR/" 2>/dev/null || true
+                    cp "$temp_dir/package.json" "$FRONTEND_DIR/"
+                    cp "$temp_dir/package-lock.json" "$FRONTEND_DIR/" 2>/dev/null || true
+                    log_info "✓ 前端代码已复制"
+                fi
+
+                # 清理临时目录
+                rm -rf "$temp_dir"
+                source_found=true
+            else
+                log_warn "Git克隆失败，尝试其他方式..."
+            fi
+        else
+            log_warn "Git未安装，无法从仓库克隆"
+        fi
     fi
+
+    # 方案2: 检查多个可能的本地源码路径
+    if [[ "$source_found" == "false" ]]; then
+        local search_paths=(
+            ".."                    # 当前目录的上级
+            "."                     # 当前目录
+            "/opt/huangtangmin-src" # 预设的源码目录
+            "$HOME/huangtangmin"    # 用户目录下
+        )
+
+        for search_path in "${search_paths[@]}"; do
+            log_info "检查源码路径: $search_path"
+
+            if [ -f "$search_path/server/main.py" ] || [ -f "$search_path/src/App.js" ]; then
+                log_info "✓ 在 $search_path 发现项目文件"
+
+                # 复制后端代码
+                if [ -d "$search_path/server" ]; then
+                    log_info "复制后端代码..."
+                    cp -r "$search_path/server"/* "$BACKEND_DIR/"
+                    log_info "✓ 后端代码已复制"
+                fi
+
+                # 复制前端代码
+                if [ -f "$search_path/package.json" ]; then
+                    log_info "复制前端代码..."
+                    [ -d "$search_path/src" ] && cp -r "$search_path/src" "$FRONTEND_DIR/"
+                    [ -d "$search_path/public" ] && cp -r "$search_path/public" "$FRONTEND_DIR/"
+                    cp "$search_path/package.json" "$FRONTEND_DIR/"
+                    cp "$search_path/package-lock.json" "$FRONTEND_DIR/" 2>/dev/null || true
+                    log_info "✓ 前端代码已复制"
+                fi
+
+                source_found=true
+                break
+            fi
+        done
+    fi
+
+    # 方案3: 如果仍未找到源码，尝试下载示例源码或提供指导
+    if [[ "$source_found" == "false" ]]; then
+        log_warn "未找到项目源码文件"
+        log_info "请选择以下选项之一："
+        echo "  1. 重新运行并指定Git仓库: $0 --git-url https://github.com/your-repo.git"
+        echo "  2. 将源码放置到以下路径之一:"
+        echo "     - /opt/huangtangmin-src/"
+        echo "     - $HOME/huangtangmin/"
+        echo "     - 当前目录的上级目录"
+        echo "  3. 创建基础项目结构(用于测试)"
+        echo ""
+
+        read -p "是否创建基础项目结构用于测试部署? (y/N): " -r
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            create_basic_project_structure
+            source_found=true
+        else
+            log_error "无法获取项目源码，部署中断"
+            log_info "请确保源码文件存在，然后重新运行部署脚本"
+            exit 1
+        fi
+    fi
+
+    # 设置权限
+    if [[ "$source_found" == "true" ]]; then
+        chown -R www-data:www-data "$DEPLOY_BASE"
+        log_info "✓ 源码获取完成，权限已设置"
+    fi
+}
+
+# 创建基础项目结构（用于测试部署）
+create_basic_project_structure() {
+    log_step "创建基础项目结构..."
+
+    # 创建后端基础文件
+    log_info "创建后端基础文件..."
+
+    # main.py
+    cat > "$BACKEND_DIR/main.py" << 'EOF'
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List, Optional
+import os
+
+app = FastAPI(title="哄汤敏系统", version="1.0.0")
+
+# 配置CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+class ChatRequest(BaseModel):
+    message: str
+    modelId: str
+    chatHistory: Optional[List[str]] = []
+
+class ChatResponse(BaseModel):
+    reply: str
+
+@app.get("/")
+async def root():
+    return {"message": "哄汤敏系统后端运行中", "version": "1.0.0"}
+
+@app.get("/health")
+async def health():
+    return {"status": "healthy", "message": "服务运行正常"}
+
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest):
+    try:
+        # 简单的回复逻辑（测试用）
+        reply = f"亲爱的，我收到了你的消息：'{request.message}' 💕 不过目前API密钥还没配置好，请检查环境变量设置哦～"
+        return ChatResponse(reply=reply)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"处理失败: {str(e)}")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=3001)
+EOF
+
+    # requirements.txt
+    cat > "$BACKEND_DIR/requirements.txt" << 'EOF'
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+gunicorn==21.2.0
+python-multipart==0.0.6
+pydantic==2.5.0
+pydantic-settings==2.1.0
+python-dotenv==1.0.0
+openai==1.3.0
+requests==2.31.0
+aiofiles==23.2.0
+jinja2==3.1.2
+EOF
+
+    # 创建前端基础文件
+    log_info "创建前端基础文件..."
+
+    # package.json
+    cat > "$FRONTEND_DIR/package.json" << 'EOF'
+{
+  "name": "huangtangmin-system",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-scripts": "5.0.1",
+    "axios": "^1.6.0",
+    "web-vitals": "^3.5.0"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "proxy": "http://localhost:3001"
+}
+EOF
+
+    # 创建 src 目录和基础文件
+    mkdir -p "$FRONTEND_DIR/src"
+
+    # App.js
+    cat > "$FRONTEND_DIR/src/App.js" << 'EOF'
+import React, { useState } from 'react';
+import axios from 'axios';
+import './App.css';
+
+function App() {
+  const [messages, setMessages] = useState([]);
+  const [inputText, setInputText] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  const sendMessage = async () => {
+    if (!inputText.trim() || isLoading) return;
+
+    const userMessage = {
+      role: 'user',
+      content: inputText,
+      timestamp: new Date().toLocaleTimeString()
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    setInputText('');
+    setIsLoading(true);
+
+    try {
+      const response = await axios.post('/api/chat', {
+        message: inputText,
+        modelId: 'qwen3-vl-plus',
+        chatHistory: []
+      });
+
+      const aiMessage = {
+        role: 'assistant',
+        content: response.data.reply,
+        timestamp: new Date().toLocaleTimeString()
+      };
+
+      setMessages(prev => [...prev, aiMessage]);
+    } catch (error) {
+      console.error('发送消息失败:', error);
+      const errorMessage = {
+        role: 'assistant',
+        content: '抱歉宝贝，系统出现了一点问题 💕',
+        timestamp: new Date().toLocaleTimeString()
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="App">
+      <div className="chat-container">
+        <div className="chat-header">
+          <h1>💕 哄汤敏系统 💕</h1>
+          <p>你的专属AI小甜心～</p>
+        </div>
+
+        <div className="chat-messages">
+          {messages.map((msg, index) => (
+            <div key={index} className={`message ${msg.role}`}>
+              <div className="message-content">{msg.content}</div>
+              <div className="message-time">{msg.timestamp}</div>
+            </div>
+          ))}
+          {isLoading && <div className="loading">AI小甜心正在思考中...</div>}
+        </div>
+
+        <div className="chat-input">
+          <input
+            type="text"
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+            placeholder="告诉我你的心情吧～"
+            disabled={isLoading}
+          />
+          <button onClick={sendMessage} disabled={isLoading || !inputText.trim()}>
+            发送💕
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default App;
+EOF
+
+    # App.css
+    cat > "$FRONTEND_DIR/src/App.css" << 'EOF'
+.App {
+  text-align: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(10px + 2vmin);
+  color: white;
+}
+
+.chat-container {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  padding: 20px;
+  width: 90%;
+  max-width: 800px;
+  height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-header {
+  margin-bottom: 20px;
+}
+
+.chat-header h1 {
+  margin: 0;
+  font-size: 2.5rem;
+}
+
+.chat-header p {
+  margin: 10px 0;
+  font-size: 1.2rem;
+  opacity: 0.8;
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.message {
+  margin: 10px 0;
+  padding: 10px;
+  border-radius: 15px;
+  max-width: 70%;
+}
+
+.message.user {
+  background: rgba(255, 105, 180, 0.3);
+  margin-left: auto;
+  text-align: right;
+}
+
+.message.assistant {
+  background: rgba(255, 255, 255, 0.2);
+  margin-right: auto;
+  text-align: left;
+}
+
+.message-content {
+  font-size: 1rem;
+  margin-bottom: 5px;
+}
+
+.message-time {
+  font-size: 0.7rem;
+  opacity: 0.7;
+}
+
+.loading {
+  text-align: center;
+  font-style: italic;
+  opacity: 0.7;
+}
+
+.chat-input {
+  display: flex;
+  gap: 10px;
+}
+
+.chat-input input {
+  flex: 1;
+  padding: 15px;
+  border: none;
+  border-radius: 25px;
+  font-size: 1rem;
+  outline: none;
+}
+
+.chat-input button {
+  padding: 15px 25px;
+  border: none;
+  border-radius: 25px;
+  background: linear-gradient(45deg, #ff6b6b, #feca57);
+  color: white;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.chat-input button:hover:not(:disabled) {
+  transform: scale(1.05);
+}
+
+.chat-input button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+EOF
+
+    # index.js
+    cat > "$FRONTEND_DIR/src/index.js" << 'EOF'
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import './index.css';
+import App from './App';
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
+EOF
+
+    # index.css
+    cat > "$FRONTEND_DIR/src/index.css" << 'EOF'
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+EOF
+
+    # 创建 public 目录和基础文件
+    mkdir -p "$FRONTEND_DIR/public"
+
+    # index.html
+    cat > "$FRONTEND_DIR/public/index.html" << 'EOF'
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="description" content="哄汤敏系统 - 你的专属AI小甜心" />
+    <title>💕 哄汤敏系统 💕</title>
+  </head>
+  <body>
+    <noscript>你需要启用JavaScript才能运行这个应用。</noscript>
+    <div id="root"></div>
+  </body>
+</html>
+EOF
+
+    # manifest.json
+    cat > "$FRONTEND_DIR/public/manifest.json" << 'EOF'
+{
+  "short_name": "哄汤敏系统",
+  "name": "哄汤敏系统 - AI小甜心",
+  "icons": [],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#000000",
+  "background_color": "#ffffff"
+}
+EOF
+
+    log_info "✓ 基础项目结构创建完成"
 }
 
 # 设置Python虚拟环境

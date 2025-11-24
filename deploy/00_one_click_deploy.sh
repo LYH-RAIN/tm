@@ -82,6 +82,7 @@ show_help() {
     echo "  --skip-env      跳过环境安装步骤"
     echo "  --skip-deploy   跳过项目部署步骤"
     echo "  --api-key KEY   设置iFlow API密钥"
+    echo "  --git-url URL   从Git仓库获取源码"
     echo "  --domain DOMAIN 设置域名（用于SSL证书）"
     echo "  --ssl           安装SSL证书（需要--domain）"
     echo "  --backup        部署前备份现有系统"
@@ -92,6 +93,7 @@ show_help() {
     echo "示例:"
     echo "  $0                                    # 完整部署"
     echo "  $0 --api-key your_key --domain example.com --ssl"
+    echo "  $0 --git-url https://github.com/user/repo.git --api-key your_key"
     echo "  $0 --skip-env --verbose               # 跳过环境安装，详细模式"
     echo ""
 }
@@ -199,6 +201,12 @@ confirm_deployment() {
         echo "API密钥:      需要后续配置"
     fi
     
+    if [[ -n "${GIT_REPO_URL:-}" ]]; then
+        echo "Git仓库:      $GIT_REPO_URL"
+    else
+        echo "Git仓库:      自动搜索本地源码"
+    fi
+
     if [[ -n "${DOMAIN:-}" ]]; then
         echo "域名:         $DOMAIN"
         if [[ "${INSTALL_SSL:-false}" == "true" ]]; then
@@ -455,6 +463,11 @@ main() {
                 ;;
             --domain)
                 DOMAIN="$2"
+                shift 2
+                ;;
+            --git-url)
+                GIT_REPO_URL="$2"
+                export GIT_REPO_URL
                 shift 2
                 ;;
             --ssl)
