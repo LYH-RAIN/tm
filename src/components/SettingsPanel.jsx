@@ -35,7 +35,7 @@ function SettingsPanel({ config, onSave }) {
           </label>
           <input
             type="text"
-            value={modelId}
+            value="qwen3-vl-plus"
             onChange={(e) => setModelId(e.target.value)}
             placeholder="例如: TBStars2-200B-A13B"
             className="w-full px-4 py-3 border-2 border-pink-light rounded-xl focus:border-pink-deep focus:outline-none bg-white/80"

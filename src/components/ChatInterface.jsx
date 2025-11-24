@@ -19,7 +19,7 @@ function ChatInterface({ config }) {
     if (!inputText.trim() || isLoading) return;
 
     if (!config.modelId) {
-      alert('请先在设置中配置模型ID');
+      config.modelId = "qwen3-vl-plus"
       return;
     }
 

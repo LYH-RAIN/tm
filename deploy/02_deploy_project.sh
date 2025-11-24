@@ -702,12 +702,10 @@ install_frontend_deps() {
         exit 1
     fi
     
-    # 检查node_modules是否已存在
-    if [ -d "node_modules" ] && [ -f "package-lock.json" ]; then
-        log_info "检测到node_modules已存在，跳过依赖安装"
-        log_info "如需重新安装，请删除node_modules目录后重新运行"
-        log_info "前端依赖检查完成"
-        return 0
+    # 强制重新安装依赖以确保完整性
+    if [ -d "node_modules" ]; then
+        log_info "清理现有node_modules目录..."
+        rm -rf node_modules package-lock.json
     fi
 
     # 安装依赖
@@ -723,46 +721,86 @@ install_frontend_deps() {
         log_warn "磁盘空间可能不足，当前可用空间: $(( $disk_free / 1024 ))MB"
     fi
 
-    # 设置npm配置优化安装
+    # 设置npm配置和镜像源
     npm config set fetch-retries 3
     npm config set fetch-retry-factor 2
     npm config set fetch-timeout 60000
     npm config set maxsockets 1
+    npm config set registry https://registry.npmmirror.com
 
-    # 尝试安装，如果失败则重试
-    local max_attempts=3
-    local attempt=1
+    # 首先安装package.json中的所有依赖
+    log_info "安装package.json中的所有依赖..."
 
-    while [[ $attempt -le $max_attempts ]]; do
-        log_info "第 $attempt 次尝试安装依赖..."
-
-        if npm install --prefer-offline --no-audit --progress=false; then
-            log_info "npm依赖安装成功"
-            break
+    # 优先使用cnpm（如果可用）
+    if command -v cnpm >/dev/null 2>&1; then
+        log_info "使用cnpm安装所有依赖（更快）..."
+        if cnpm install --silent; then
+            log_info "✓ cnmp安装所有依赖成功"
         else
-            log_warn "第 $attempt 次安装失败"
+            log_warn "cnpm安装失败，回退到npm"
+            npm install --no-audit --progress=false
+        fi
+    else
+        # npm安装重试机制
+        local max_attempts=3
+        local attempt=1
 
-            if [[ $attempt -eq $max_attempts ]]; then
-                log_error "npm依赖安装失败，已尝试 $max_attempts 次"
-                log_info "请尝试手动执行以下命令进行问题排查："
-                echo "  cd $FRONTEND_DIR"
-                echo "  npm cache clean --force"
-                echo "  npm install --verbose"
-                echo "  或者尝试使用 yarn 替代："
-                echo "  npm install -g yarn"
-                echo "  yarn install"
-                return 1
+        while [[ $attempt -le $max_attempts ]]; do
+            log_info "第 $attempt 次尝试npm安装依赖..."
+
+            if npm install --no-audit --progress=false; then
+                log_info "✓ npm依赖安装成功"
+                break
+            else
+                log_warn "第 $attempt 次安装失败"
+                attempt=$((attempt + 1))
+
+                if [[ $attempt -le $max_attempts ]]; then
+                    log_info "清理缓存后重试..."
+                    npm cache clean --force
+                    sleep 3
+                else
+                    log_error "npm依赖安装失败，已尝试 $max_attempts 次"
+                    log_info "请尝试手动执行以下命令进行问题排查："
+                    echo "  cd $FRONTEND_DIR"
+                    echo "  npm cache clean --force"
+                    echo "  npm install --verbose"
+                    exit 1
+                fi
             fi
+        done
+    fi
 
-            # 清理并重试
-            log_info "清理node_modules后重试..."
-            rm -rf node_modules package-lock.json
-            npm cache clean --force
-            sleep 5
-            ((attempt++))
+    # 验证关键依赖是否已安装
+    log_info "验证关键运行时依赖..."
+    local missing_deps=()
+    local critical_deps=("react" "react-dom" "axios" "tailwindcss" "autoprefixer" "postcss")
+
+    for dep in "${critical_deps[@]}"; do
+        if ! npm list "$dep" >/dev/null 2>&1; then
+            missing_deps+=("$dep")
         fi
     done
-    
+
+    # 如果有缺失的关键依赖，单独安装
+    if [ ${#missing_deps[@]} -gt 0 ]; then
+        log_warn "检测到缺失的关键依赖: ${missing_deps[*]}"
+        log_info "单独安装缺失的关键依赖..."
+
+        for dep in "${missing_deps[@]}"; do
+            log_info "安装 $dep..."
+            if command -v cnpm >/dev/null 2>&1; then
+                cnpm install "$dep" --save
+            else
+                npm install "$dep" --save --no-audit
+            fi
+        done
+
+        log_info "✓ 关键依赖补全完成"
+    else
+        log_info "✓ 所有关键依赖验证通过"
+    fi
+
     log_info "前端依赖安装完成"
 }
 
@@ -784,18 +822,24 @@ build_frontend() {
 
             # 方案1: 尝试使用cnpm（如果已安装）
             if command -v cnpm >/dev/null 2>&1; then
-                log_info "检测到cnpm，使用cnpm安装webpack依赖..."
-                if cnpm install --save-dev webpack webpack-cli; then
-                    log_info "✓ cnpm安装webpack成功"
+                log_info "检测到cnpm，使用cnpm安装webpack完整依赖..."
+                if cnpm install --save-dev webpack webpack-cli html-webpack-plugin babel-loader @babel/core @babel/preset-react @babel/preset-env style-loader css-loader postcss-loader; then
+                    log_info "✓ cnpm安装webpack完整依赖成功"
                 else
                     log_warn "cnpm安装失败，跳过webpack安装"
                 fi
-            # 方案2: 快速npm安装（30秒超时）
-            elif timeout 30 npm install --save-dev --no-audit --progress=false webpack webpack-cli >/dev/null 2>&1; then
-                log_info "✓ npm快速安装webpack成功"
+            # 方案2: 快速npm安装（60秒超时，安装更多依赖）
+            elif timeout 60 npm install --save-dev --no-audit --progress=false webpack webpack-cli html-webpack-plugin babel-loader @babel/core @babel/preset-react @babel/preset-env style-loader css-loader postcss-loader >/dev/null 2>&1; then
+                log_info "✓ npm快速安装webpack完整依赖成功"
             else
-                log_warn "webpack依赖安装超时，跳过安装步骤"
-                log_info "将直接尝试使用npx webpack构建"
+                log_warn "webpack完整依赖安装超时，尝试基础安装..."
+                # 降级方案：只安装核心依赖
+                if timeout 30 npm install --save-dev --no-audit --progress=false webpack webpack-cli html-webpack-plugin >/dev/null 2>&1; then
+                    log_info "✓ npm安装webpack核心依赖成功"
+                else
+                    log_warn "webpack依赖安装失败，跳过安装步骤"
+                    log_info "将直接尝试使用npx webpack构建"
+                fi
             fi
         fi
 
